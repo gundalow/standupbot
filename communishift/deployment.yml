@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: standupbot
+  namespace: communishift-standupbot
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: standupbot
+  template:
+    metadata:
+      labels:
+        app: standupbot
+    spec:
+      containers:
+      - name: standupbot
+        image: quay.io/gsutclif/standupbot:latest
+        imagePullPolicy: Always
+        # use this to start the container and check pvc/mount/config
+        # useful when needing to wipe the db or something
+        #command: ["sleep", "3600"]
+        command: ["/bin/sh", "-c", "cd /data && /usr/bin/standupbot"]
+        env:
+        - name: XDG_DATA_HOME
+          value: /data
+        volumeMounts:
+        - name: standupbot
+          mountPath: /data/standupbot
+        - name: config-file
+          mountPath: /data/config.json
+          subPath: config.json
+          readOnly: true
+        - name: password-file
+          mountPath: /data/password
+          subPath: password
+          readOnly: true
+      volumes:
+      - name: standupbot
+        persistentVolumeClaim:
+          claimName: standupbot
+      - name: config-file
+        secret:
+          secretName: standupbot-config
+      - name: password-file
+        secret:
+          secretName: standupbot-password

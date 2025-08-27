@@ -1,0 +1,37 @@
+# Communishift deployment
+
+## Image source
+
+The image is currently pushed to quay.io, as can be seen in the deployment.yml. As
+a reminder to me, this is the process:
+
+```
+podman build -t quay.io/gsutclif/standupbot:latest .
+podman push quay.io/gsutclif/standupbot:latest
+```
+
+# Deployment notes
+
+## Startup
+
+I've had to bypass the `docker-run.sh` startup script because permissions can't be changed
+in Openshift (non-root user). The current value of `command` seems to work, and could
+be set in the Dockerfile...
+
+There's also an alternative, commented-out `command` which just starts a `sleep` process. This
+is handy when you want to check the config deployed right, or need to alter the sqlite DB while the
+bot is offline.
+
+### Files needed
+
+- pvc.yml creates the necessary storage for the DB, apply this first
+- deployment.yml then deploys the app. No inbound route is needed for Matrix bots
+
+You'll also need two secrets made from the files the bot expects:
+
+```
+oc create secret generic standupbot-password --from-file=password
+oc create secret generic standupbot-config --from-file=config.json
+oc apply -f pvc.yml
+oc apply -f deployment.yml
+```
