@@ -20,7 +20,7 @@ spec:
         # use this to start the container and check pvc/mount/config
         # useful when needing to wipe the db or something
         #command: ["sleep", "3600"]
-        command: ["/bin/sh", "-c", "cd /data && /usr/bin/standupbot"]
+        command: ["/bin/sh", "-c", "cd /data && /usr/bin/standupbot --loglevel info"]
         env:
         - name: XDG_DATA_HOME
           value: /data
