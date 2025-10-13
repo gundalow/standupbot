@@ -173,8 +173,8 @@ func FormatPost(userID mid.UserID, standupFlow *StandupFlow, preview bool, sendC
 	}
 
 	if preview {
-        postText = fmt.Sprintf("Standup post preview:\n----------------------------------------\n" + postText)
-        postHtml = fmt.Sprintf("<i>Standup post preview:</i><hr>" + postHtml)
+        postText = "Standup post preview:\n----------------------------------------\n" + postText
+        postHtml = "<i>Standup post preview:</i><hr>" + postHtml
 	}
 	if sendConfirmation {
 		if isEditOfExisting {
