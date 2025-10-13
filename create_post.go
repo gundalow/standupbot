@@ -20,10 +20,10 @@ const RED_X = "❌"
 var StatePreviousPost = mevent.Type{Type: "com.nevarro.standupbot.previous_post", Class: mevent.StateEventType}
 
 type PreviousPostEventContent struct {
-	EditEventID mid.EventID
-	FlowID      uuid.UUID
-	Day         time.Weekday
-	TodayItems  []StandupItem
+	EditEventID  mid.EventID
+	FlowID       uuid.UUID
+	Day          time.Weekday
+	PlannedItems []StandupItem
 }
 
 func sendMessageWithCheckmarkReaction(roomID mid.RoomID, message *mevent.MessageEventContent) (*mautrix.RespSendEvent, error) {
@@ -43,17 +43,11 @@ func sendThreadRootMessage(roomID mid.RoomID, header string) (*mautrix.RespSendE
 func GoToStateAndNotify(roomID mid.RoomID, userID mid.UserID, state StandupFlowState) {
 	var question string
 	switch state {
-	case Friday:
-		question = "What did you do Friday?"
+	case Done:
+		question = "What did you get done since last time?"
 		break
-	case Weekend:
-		question = "What did you do over the weekend?"
-		break
-	case Yesterday:
-		question = "What did you do yesterday?"
-		break
-	case Today:
-		question = "What are you planning to do today?"
+	case Planned:
+		question = "What are you planning to do next?"
 		break
 	case Blockers:
 		question = "Do you have any blockers?"
@@ -65,7 +59,7 @@ func GoToStateAndNotify(roomID mid.RoomID, userID mid.UserID, state StandupFlowS
 
 	var resp *mautrix.RespSendEvent
 	var err error
-	if state == Threads || state == ThreadsFriday {
+	if state == Threads {
 		content := format.RenderMarkdown("**Fill out the standup post by replying in each thread.** *Enter one item per message.*", true, false)
 		resp, err = SendMessage(roomID, &content)
 	} else {
@@ -83,36 +77,20 @@ func GoToStateAndNotify(roomID mid.RoomID, userID mid.UserID, state StandupFlowS
 	currentStandupFlows[userID].State = state
 	currentStandupFlows[userID].ReactableEvents = append(currentStandupFlows[userID].ReactableEvents, resp.EventID)
 
-	if state == Threads || state == ThreadsFriday {
-		if state == ThreadsFriday {
-			resp, err := sendThreadRootMessage(roomID, "Friday")
-			if err != nil {
-				log.Error("Unable to send thread root for Friday")
-				return
-			}
-			currentStandupFlows[userID].FridayThreadEvents = []mid.EventID{resp.EventID}
-
-			resp, err = sendThreadRootMessage(roomID, "Weekend")
-			if err != nil {
-				log.Error("Unable to send thread root for Weekend")
-				return
-			}
-			currentStandupFlows[userID].WeekendThreadEvents = []mid.EventID{resp.EventID}
-		} else {
-			resp, err = sendThreadRootMessage(roomID, "Yesterday")
-			if err != nil {
-				log.Error("Unable to send thread root for Yesterday")
-				return
-			}
-			currentStandupFlows[userID].YesterdayThreadEvents = []mid.EventID{resp.EventID}
-		}
-
-		resp, err = sendThreadRootMessage(roomID, "Today")
+	if state == Threads {
+		resp, err = sendThreadRootMessage(roomID, "Done")
 		if err != nil {
-			log.Error("Unable to send thread root for Today")
+			log.Error("Unable to send thread root for Done")
 			return
 		}
-		currentStandupFlows[userID].TodayThreadEvents = []mid.EventID{resp.EventID}
+		currentStandupFlows[userID].DoneThreadEvents = []mid.EventID{resp.EventID}
+
+		resp, err = sendThreadRootMessage(roomID, "Planned")
+		if err != nil {
+			log.Error("Unable to send thread root for Planned")
+			return
+		}
+		currentStandupFlows[userID].PlannedThreadEvents = []mid.EventID{resp.EventID}
 
 		resp, err = sendThreadRootMessage(roomID, "Blockers")
 		if err != nil {
@@ -148,14 +126,8 @@ func CreatePost(roomID mid.RoomID, userID mid.UserID) {
 
 	if useThreads {
 		nextState = Threads
-		if stateStore.GetCurrentWeekdayInUserTimezone(userID) == time.Monday {
-			nextState = ThreadsFriday
-		}
 	} else {
-		nextState = Yesterday
-		if stateStore.GetCurrentWeekdayInUserTimezone(userID) == time.Monday {
-			nextState = Friday
-		}
+		nextState = Done
 	}
 
 	GoToStateAndNotify(roomID, userID, nextState)
@@ -179,25 +151,15 @@ func FormatPost(userID mid.UserID, standupFlow *StandupFlow, preview bool, sendC
 	postText := fmt.Sprintf(`%s's standup post:\n\n`, userID)
 	postHtml := fmt.Sprintf(`<a href="https://matrix.to/#/%s">%s</a>'s standup post:<br><br>`, userID, userID)
 
-	if len(standupFlow.Yesterday) > 0 {
-		plain, html := formatList(standupFlow.Yesterday)
-		postText += "**Yesterday**\n" + plain
-		postHtml += "<b>Yesterday</b><br><ul>" + html + "</ul>"
+	if len(standupFlow.Done) > 0 {
+		plain, html := formatList(standupFlow.Done)
+		postText += "**Done**\n" + plain
+		postHtml += "<b>Done</b><br><ul>" + html + "</ul>"
 	}
-	if len(standupFlow.Friday) > 0 {
-		plain, html := formatList(standupFlow.Friday)
-		postText += "\n**Friday**\n" + plain
-		postHtml += "<b>Friday</b><br><ul>" + html + "</ul>"
-	}
-	if len(standupFlow.Weekend) > 0 {
-		plain, html := formatList(standupFlow.Weekend)
-		postText += "\n**Weekend**\n" + plain
-		postHtml += "<b>Weekend</b><br><ul>" + html + "</ul>"
-	}
-	if len(standupFlow.Today) > 0 {
-		plain, html := formatList(standupFlow.Today)
-		postText += "\n**Today**\n" + plain
-		postHtml += "<b>Today</b><br><ul>" + html + "</ul>"
+	if len(standupFlow.Planned) > 0 {
+		plain, html := formatList(standupFlow.Planned)
+		postText += "\n**Planned**\n" + plain
+		postHtml += "<b>Planned</b><br><ul>" + html + "</ul>"
 	}
 	if len(standupFlow.Blockers) > 0 {
 		plain, html := formatList(standupFlow.Blockers)
@@ -211,8 +173,8 @@ func FormatPost(userID mid.UserID, standupFlow *StandupFlow, preview bool, sendC
 	}
 
 	if preview {
-		postText = fmt.Sprintf("Standup post preview:\n----------------------------------------\n" + postText)
-		postHtml = fmt.Sprintf("<i>Standup post preview:</i><hr>" + postHtml)
+        postText = fmt.Sprintf("Standup post preview:\n----------------------------------------\n" + postText)
+        postHtml = fmt.Sprintf("<i>Standup post preview:</i><hr>" + postHtml)
 	}
 	if sendConfirmation {
 		if isEditOfExisting {
@@ -301,7 +263,7 @@ func SendMessageToSendRoom(event *mevent.Event, currentFlow *StandupFlow, editEv
 			EditEventID: futureEditId,
 			FlowID:      currentFlow.FlowID,
 			Day:         stateStore.GetCurrentWeekdayInUserTimezone(event.Sender),
-			TodayItems:  currentFlow.Today,
+			PlannedItems:  currentFlow.Planned,
 		})
 	}
 }
@@ -343,7 +305,7 @@ func HandleReaction(_ mautrix.EventSource, event *mevent.Event) {
 				return
 			}
 		} else if currentFlow.PreviewEventId.String() != "" {
-			if currentFlow.State != Confirm && currentFlow.State != Sent && currentFlow.State != Threads && currentFlow.State != ThreadsFriday {
+			if currentFlow.State != Confirm && currentFlow.State != Sent && currentFlow.State != Threads {
 				// this means we have already gone through the flow, and we went back to edit.
 				client.RedactEvent(event.RoomID, currentFlow.PreviewEventId)
 				currentFlow.State = Notes
@@ -351,16 +313,10 @@ func HandleReaction(_ mautrix.EventSource, event *mevent.Event) {
 		}
 
 		switch currentFlow.State {
-		case Yesterday:
-			GoToStateAndNotify(event.RoomID, event.Sender, Today)
+		case Done:
+			GoToStateAndNotify(event.RoomID, event.Sender, Planned)
 			break
-		case Friday:
-			GoToStateAndNotify(event.RoomID, event.Sender, Weekend)
-			break
-		case Weekend:
-			GoToStateAndNotify(event.RoomID, event.Sender, Today)
-			break
-		case Today:
+		case Planned:
 			GoToStateAndNotify(event.RoomID, event.Sender, Blockers)
 			break
 		case Blockers:
@@ -370,7 +326,7 @@ func HandleReaction(_ mautrix.EventSource, event *mevent.Event) {
 			ShowMessagePreview(event.RoomID, event.Sender, currentFlow, false)
 			currentFlow.State = Confirm
 			return
-		case Threads, ThreadsFriday, Confirm:
+		case Threads, Confirm:
 			SendMessageToSendRoom(event, currentFlow, nil)
 			return
 		case Sent:

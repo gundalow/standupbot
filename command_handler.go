@@ -21,17 +21,14 @@ type StandupFlowState int
 
 const (
 	FlowNotStarted StandupFlowState = iota
-	Yesterday
-	Friday
-	Weekend
-	Today
+	Done
+	Planned
 	Blockers
 	Notes
 	Confirm
 	Sent
 
 	Threads
-	ThreadsFriday
 )
 
 type StandupItem struct {
@@ -47,18 +44,14 @@ type StandupFlow struct {
 	PreviewEventId  mid.EventID
 	ResendEventId   *mid.EventID
 
-	Yesterday []StandupItem
-	Friday    []StandupItem
-	Weekend   []StandupItem
-	Today     []StandupItem
+	Done      []StandupItem
+	Planned   []StandupItem
 	Blockers  []StandupItem
 	Notes     []StandupItem
 
 	// Root events for threads
-	YesterdayThreadEvents []mid.EventID
-	FridayThreadEvents    []mid.EventID
-	WeekendThreadEvents   []mid.EventID
-	TodayThreadEvents     []mid.EventID
+	DoneThreadEvents      []mid.EventID
+	PlannedThreadEvents   []mid.EventID
 	BlockersThreadEvents  []mid.EventID
 	NotesThreadEvents     []mid.EventID
 }
@@ -71,17 +64,13 @@ func BlankStandupFlow() *StandupFlow {
 		FlowID:          uuid,
 		State:           FlowNotStarted,
 		ReactableEvents: make([]mid.EventID, 0),
-		Yesterday:       make([]StandupItem, 0),
-		Friday:          make([]StandupItem, 0),
-		Weekend:         make([]StandupItem, 0),
-		Today:           make([]StandupItem, 0),
+		Done:            make([]StandupItem, 0),
+		Planned:         make([]StandupItem, 0),
 		Blockers:        make([]StandupItem, 0),
 		Notes:           make([]StandupItem, 0),
 
-		YesterdayThreadEvents: make([]mid.EventID, 0),
-		FridayThreadEvents:    make([]mid.EventID, 0),
-		WeekendThreadEvents:   make([]mid.EventID, 0),
-		TodayThreadEvents:     make([]mid.EventID, 0),
+		DoneThreadEvents:      make([]mid.EventID, 0),
+		PlannedThreadEvents:   make([]mid.EventID, 0),
 		BlockersThreadEvents:  make([]mid.EventID, 0),
 		NotesThreadEvents:     make([]mid.EventID, 0),
 	}
@@ -104,7 +93,7 @@ func SendHelp(roomId mid.RoomID) {
 	noticeText := `COMMANDS:
 * new -- prepare a new standup post
 * show -- show the current standup post
-* edit [Friday|Weekend|Yesterday|Today|Blockers|Notes] -- edit the given section of the standup post
+* edit [Done|Planned|Blockers|Notes] -- edit the given section of the standup post
 * cancel -- cancel the current standup post
 * undo -- undo sending the current standup post to the send room
 * help -- show this help
@@ -119,7 +108,7 @@ Version %s. Source code: https://gitlab.com/beeper/standupbot/`
 <ul>
 <li><b>new</b> &mdash; prepare a new standup post</li>
 <li><b>show</b> &mdash; show the current standup post</li>
-<li><b>edit [Friday|Weekend|Yesterday|Today|Blockers|Notes]</b> &mdash; edit the given section of the standup post</li>
+<li><b>edit [Done|Planned|Blockers|Notes]</b> &mdash; edit the given section of the standup post</li>
 <li><b>cancel</b> &mdash; cancel the current standup post</li>
 <li><b>undo</b> &mdash; undo sending the current standup post to the send room</li>
 <li><b>help</b> &mdash; show this help</li>
@@ -401,7 +390,7 @@ func HandleEdit(event *mevent.Event, standupFlow *StandupFlow) {
 	// current standup, then edit the entry in the corresponding list.
 	messageEventContent := event.Content.AsMessage()
 	relatesTo := messageEventContent.RelatesTo
-	standupLists := [][]StandupItem{standupFlow.Yesterday, standupFlow.Friday, standupFlow.Weekend, standupFlow.Today, standupFlow.Blockers, standupFlow.Notes}
+	standupLists := [][]StandupItem{standupFlow.Done, standupFlow.Planned, standupFlow.Blockers, standupFlow.Notes}
 	edited := false
 	for _, standupList := range standupLists {
 		if tryEditListItem(standupList, relatesTo.EventID, messageEventContent.NewContent) {
@@ -411,7 +400,7 @@ func HandleEdit(event *mevent.Event, standupFlow *StandupFlow) {
 	}
 
 	if edited {
-		if standupFlow.State == Threads || standupFlow.State == ThreadsFriday {
+		if standupFlow.State == Threads {
 			EditPreview(event.RoomID, event.Sender, standupFlow)
 		} else if standupFlow.State == Confirm {
 			standupFlow.ReactableEvents = EditPreview(event.RoomID, event.Sender, standupFlow)
@@ -425,7 +414,7 @@ func HandleEdit(event *mevent.Event, standupFlow *StandupFlow) {
 func HandleReply(event *mevent.Event, standupFlow *StandupFlow) {
 	// This is a reply. This only matters in thread mode.
 	switch standupFlow.State {
-	case Threads, ThreadsFriday, Confirm, Sent:
+	case Threads, Confirm, Sent:
 		log.Info("Reply in thread mode.")
 		break
 	default:
@@ -442,31 +431,17 @@ func HandleReply(event *mevent.Event, standupFlow *StandupFlow) {
 		Body:          mevent.TrimReplyFallbackText(messageEventContent.Body),
 		FormattedBody: mevent.TrimReplyFallbackHTML(messageEventContent.FormattedBody),
 	}
-	for _, eventID := range standupFlow.YesterdayThreadEvents {
+	for _, eventID := range standupFlow.DoneThreadEvents {
 		if eventID == relatesTo.EventID {
-			standupFlow.Yesterday = append(standupFlow.Yesterday, standupItem)
-			standupFlow.YesterdayThreadEvents = append(standupFlow.YesterdayThreadEvents, event.ID)
+			standupFlow.Done = append(standupFlow.Done, standupItem)
+			standupFlow.DoneThreadEvents = append(standupFlow.DoneThreadEvents, event.ID)
 			edited = true
 		}
 	}
-	for _, eventID := range standupFlow.FridayThreadEvents {
+	for _, eventID := range standupFlow.PlannedThreadEvents {
 		if eventID == relatesTo.EventID {
-			standupFlow.Friday = append(standupFlow.Friday, standupItem)
-			standupFlow.FridayThreadEvents = append(standupFlow.FridayThreadEvents, event.ID)
-			edited = true
-		}
-	}
-	for _, eventID := range standupFlow.WeekendThreadEvents {
-		if eventID == relatesTo.EventID {
-			standupFlow.Weekend = append(standupFlow.Weekend, standupItem)
-			standupFlow.WeekendThreadEvents = append(standupFlow.WeekendThreadEvents, event.ID)
-			edited = true
-		}
-	}
-	for _, eventID := range standupFlow.TodayThreadEvents {
-		if eventID == relatesTo.EventID {
-			standupFlow.Today = append(standupFlow.Today, standupItem)
-			standupFlow.TodayThreadEvents = append(standupFlow.TodayThreadEvents, event.ID)
+			standupFlow.Planned = append(standupFlow.Planned, standupItem)
+			standupFlow.PlannedThreadEvents = append(standupFlow.PlannedThreadEvents, event.ID)
 			edited = true
 		}
 	}
@@ -547,17 +522,11 @@ func HandleMessage(_ mautrix.EventSource, event *mevent.Event) {
 			}
 
 			switch val.State {
-			case Yesterday:
-				val.Yesterday = append(val.Yesterday, standupItem)
+			case Done:
+				val.Done = append(val.Done, standupItem)
 				break
-			case Friday:
-				val.Friday = append(val.Friday, standupItem)
-				break
-			case Weekend:
-				val.Weekend = append(val.Weekend, standupItem)
-				break
-			case Today:
-				val.Today = append(val.Today, standupItem)
+			case Planned:
+				val.Planned = append(val.Planned, standupItem)
 				break
 			case Blockers:
 				val.Blockers = append(val.Blockers, standupItem)
@@ -618,7 +587,7 @@ func HandleMessage(_ mautrix.EventSource, event *mevent.Event) {
 		if len(commandParts) != 2 {
 			SendMessage(event.RoomID, &mevent.MessageEventContent{
 				MsgType: mevent.MsgNotice,
-				Body:    fmt.Sprintf("Invalid item to edit! Must be one of Friday, Weekend, Yesterday, Today, Blockers, or Notes"),
+				Body:    fmt.Sprintf("Invalid item to edit! Must be one of Done, Planned, Blockers, or Notes"),
 			})
 			return
 		}
@@ -627,29 +596,11 @@ func HandleMessage(_ mautrix.EventSource, event *mevent.Event) {
 		}
 
 		switch strings.ToLower(commandParts[1]) {
-		case "friday":
-			if stateStore.GetCurrentWeekdayInUserTimezone(event.Sender) != time.Monday {
-				SendMessage(event.RoomID, &mevent.MessageEventContent{MsgType: mevent.MsgNotice, Body: "It's not Monday, so you can't go back to edit Friday."})
-				return
-			}
-			GoToStateAndNotify(event.RoomID, event.Sender, Friday)
+		case "done":
+			GoToStateAndNotify(event.RoomID, event.Sender, Done)
 			break
-		case "weekend":
-			if stateStore.GetCurrentWeekdayInUserTimezone(event.Sender) != time.Monday {
-				SendMessage(event.RoomID, &mevent.MessageEventContent{MsgType: mevent.MsgNotice, Body: "It's not Monday, so you can't go back to edit the weekend."})
-				return
-			}
-			GoToStateAndNotify(event.RoomID, event.Sender, Weekend)
-			break
-		case "yesterday":
-			if stateStore.GetCurrentWeekdayInUserTimezone(event.Sender) == time.Monday {
-				SendMessage(event.RoomID, &mevent.MessageEventContent{MsgType: mevent.MsgNotice, Body: "It's Monday, so you can't go back to edit yesterday. Edit Friday or Weekend instead."})
-				return
-			}
-			GoToStateAndNotify(event.RoomID, event.Sender, Yesterday)
-			break
-		case "today":
-			GoToStateAndNotify(event.RoomID, event.Sender, Today)
+		case "planned":
+			GoToStateAndNotify(event.RoomID, event.Sender, Planned)
 			break
 		case "blockers":
 			GoToStateAndNotify(event.RoomID, event.Sender, Blockers)
@@ -712,36 +663,18 @@ func HandleRedaction(_ mautrix.EventSource, event *mevent.Event) {
 	// Handle redactions
 	if val, found := currentStandupFlows[event.Sender]; found {
 		removedItem := false
-		for i, item := range val.Yesterday {
+		for i, item := range val.Done {
 			if item.EventID == event.Redacts {
 				removedItem = true
-				val.Yesterday = append(val.Yesterday[:i], val.Yesterday[i+1:]...)
+				val.Done = append(val.Done[:i], val.Done[i+1:]...)
 				break
 			}
 		}
 		if !removedItem {
-			for i, item := range val.Friday {
+			for i, item := range val.Planned {
 				if item.EventID == event.Redacts {
 					removedItem = true
-					val.Friday = append(val.Friday[:i], val.Friday[i+1:]...)
-					break
-				}
-			}
-		}
-		if !removedItem {
-			for i, item := range val.Weekend {
-				if item.EventID == event.Redacts {
-					removedItem = true
-					val.Weekend = append(val.Weekend[:i], val.Weekend[i+1:]...)
-					break
-				}
-			}
-		}
-		if !removedItem {
-			for i, item := range val.Today {
-				if item.EventID == event.Redacts {
-					removedItem = true
-					val.Today = append(val.Today[:i], val.Today[i+1:]...)
+					val.Planned = append(val.Planned[:i], val.Planned[i+1:]...)
 					break
 				}
 			}

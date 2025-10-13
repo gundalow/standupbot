@@ -5,3 +5,4 @@ config*.json
 standupbot
 passwordfile
 .envrc.user
+*.swp
