@@ -69,7 +69,7 @@ func main() {
 	err = json.Unmarshal(configJson, &configuration)
 	username := mid.UserID(configuration.Username)
 
-	// Create directory /test
+	// Create data directory
 	dataDir := xdg.DataHome() + "/standupbot"
 	if err = os.MkdirAll(dataDir, os.ModePerm); err != nil {
 		log.Fatalf("Could not create data directory %s: %s", dataDir, err)
@@ -81,6 +81,7 @@ func main() {
 		log.Fatal("Could not open standupbot database.")
 	}
 
+    log.Info("Loading current flows from %s", dataDir)
 	currentStandupFlowsJson, err := os.ReadFile(dataDir + "/current-flows.json")
 	if err != nil {
 		log.Warn("Couldn't open the current-flows JSON.")
@@ -137,6 +138,7 @@ func main() {
 	// login to homeserver
 	log.Info("Logging in")
 	password, err := configuration.GetPassword()
+    log.Infof("Attempting login as %s", username.String())
 	if err != nil {
 		log.Fatalf("Could not read password from %s", configuration.PasswordFile)
 	}
