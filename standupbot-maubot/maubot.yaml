@@ -1,0 +1,11 @@
+maubot: 0.4.1
+id: com.nevarro.standupbot
+version: 1.0.0
+license: AGPL-3.0-or-later
+modules:
+  - standupbot
+main_class: StandupBot
+database: true
+config: true
+extra_files:
+  - base-config.yaml

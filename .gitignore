@@ -6,3 +6,8 @@ standupbot
 passwordfile
 .envrc.user
 *.swp
+
+# maubot plugin build artifacts
+*.mbp
+__pycache__/
+*.pyc
