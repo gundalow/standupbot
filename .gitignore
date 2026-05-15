@@ -2,7 +2,7 @@ bin
 config*.json
 !config.sample.json
 .direnv
-standupbot
+/standupbot
 passwordfile
 .envrc.user
 *.swp
