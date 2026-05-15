@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Optional
 
 from mautrix.types import EventType, MessageType, RoomID
@@ -8,6 +9,27 @@ from .flow import FlowState, StandupFlow, StandupItem
 
 CHECKMARK = "✅"
 RED_X = "❌"
+
+
+def trim_reply_fallback_text(body: str) -> str:
+    if not body.startswith("> "):
+        return body
+    lines = body.split("\n")
+    i = 0
+    while i < len(lines) and lines[i].startswith("> "):
+        i += 1
+    if i < len(lines) and lines[i] == "":
+        i += 1
+    return "\n".join(lines[i:])
+
+
+def trim_reply_fallback_html(html: str) -> str:
+    if not html:
+        return html
+    match = re.match(r"^<mx-reply>.*?</mx-reply>", html, re.DOTALL)
+    if match:
+        return html[match.end():]
+    return html
 
 SECTION_QUESTIONS = {
     FlowState.DONE: "What did you get done since last time?",
@@ -154,6 +176,29 @@ async def send_to_send_room(
             },
         )
         return None
+
+    try:
+        members = await client.get_joined_members(send_room)
+        if sender not in members:
+            await client.send_message_event(
+                evt_room_id,
+                EventType.ROOM_MESSAGE,
+                {
+                    "msgtype": "m.notice",
+                    "body": "**You are not a member of the configured send room!** "
+                            "Refusing to send a message to the room. "
+                            "Set a new one using `!standupbot room [room ID or alias]`.",
+                    "format": "org.matrix.custom.html",
+                    "formatted_body": (
+                        "<b>You are not a member of the configured send room!</b> "
+                        "Refusing to send a message to the room. "
+                        "Set a new one using <code>!standupbot room [room ID or alias]</code>."
+                    ),
+                },
+            )
+            return None
+    except Exception:
+        pass
 
     post = format_post(sender, flow, preview=False, send_confirmation=False, is_edit_of_existing=False)
     post["space.nevarro.msc3464.on_behalf_of"] = sender

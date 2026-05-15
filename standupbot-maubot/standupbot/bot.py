@@ -31,6 +31,8 @@ from .post import (
     edit_preview,
     send_to_send_room,
     go_to_state_and_notify,
+    trim_reply_fallback_text,
+    trim_reply_fallback_html,
 )
 from .scheduler import NotificationScheduler
 
@@ -138,14 +140,16 @@ class StandupBot(Plugin):
         if content.msgtype != MessageType.TEXT:
             return
         body = content.body or ""
-        if body.startswith("!"):
-            return
 
         cmd_text = self._extract_mention_command(body)
         if cmd_text is not None:
             await self._dispatch_mention_command(evt, cmd_text)
-        else:
-            await self._handle_flow_message(evt)
+            return
+
+        if body.startswith("!"):
+            return
+
+        await self._handle_flow_message(evt)
 
     @event.on(EventType.REACTION)
     async def on_reaction(self, evt) -> None:
@@ -202,6 +206,8 @@ class StandupBot(Plugin):
             f"@{localpart}:",
             f"@{localpart}",
             f"{localpart}:",
+            f"!{localpart}:",
+            "!su:",
         ]
         for prefix in prefixes:
             if lower.startswith(prefix.lower()):
@@ -415,6 +421,7 @@ class StandupBot(Plugin):
                 {"msgtype": "m.notice", "body": "No standup post to cancel."},
             )
         else:
+            await flow.delete(self.database, uid)
             self.flows[uid] = new_flow()
             await self.client.send_message_event(
                 evt.room_id,
@@ -609,14 +616,19 @@ class StandupBot(Plugin):
                 {"msgtype": "m.notice", "body": text},
             )
         else:
-            room_id = room_id.strip()
+            parts = room_id.strip().split(None, 1)
+            room_to_join = parts[0]
+            server_name = parts[1] if len(parts) > 1 else None
             try:
-                resp = await self.client.join_room(room_id)
-                joined_room_id = resp.room_id if hasattr(resp, "room_id") else RoomID(room_id)
+                join_args = [room_to_join]
+                if server_name:
+                    join_args.append(server_name)
+                resp = await self.client.join_room(*join_args)
+                joined_room_id = resp.room_id if hasattr(resp, "room_id") else RoomID(room_to_join)
                 await self.user_config.set_send_room(evt.sender, evt.room_id, joined_room_id)
-                text = f"Joined {room_id} and set that as your send room"
+                text = f"Joined {room_to_join} and set that as your send room"
             except Exception as e:
-                text = f"Could not join room {room_id}: {e}"
+                text = f"Could not join room {room_to_join}: {e}"
                 await self.client.send_message_event(
                     evt.room_id,
                     EventType.ROOM_MESSAGE,
@@ -811,7 +823,9 @@ class StandupBot(Plugin):
 
     async def _handle_red_x(self, evt, flow: StandupFlow) -> None:
         if flow.state in (FlowState.CONFIRM, FlowState.SENT):
-            self.flows[str(evt.sender)] = new_flow()
+            uid = str(evt.sender)
+            await flow.delete(self.database, uid)
+            self.flows[uid] = new_flow()
             await self.client.send_message_event(
                 evt.room_id,
                 EventType.ROOM_MESSAGE,
@@ -830,8 +844,8 @@ class StandupBot(Plugin):
         if new_content is None:
             return
 
-        new_body = getattr(new_content, "body", "") or ""
-        new_formatted = getattr(new_content, "formatted_body", "") or ""
+        new_body = trim_reply_fallback_text(getattr(new_content, "body", "") or "")
+        new_formatted = trim_reply_fallback_html(getattr(new_content, "formatted_body", "") or "")
 
         updated = await flow.update_item(edit_event_id, new_body, new_formatted, self.database)
         if updated:
@@ -866,12 +880,10 @@ class StandupBot(Plugin):
         if not reply_to_id:
             return
 
-        body = content.body or ""
-        formatted_body = ""
-        if hasattr(content, "formatted_body"):
-            formatted_body = content.formatted_body or ""
-        elif hasattr(content, "get"):
-            formatted_body = content.get("formatted_body", "")
+        body = trim_reply_fallback_text(content.body or "")
+        formatted_body = trim_reply_fallback_html(
+            getattr(content, "formatted_body", "") or ""
+        )
 
         added = await flow.add_thread_reply(
             str(evt.event_id),
